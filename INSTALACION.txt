@@ -1,0 +1,76 @@
+════════════════════════════════════════════════════════════
+    🎃 EVENTO HALLOWEEN - INSTRUCCIONES DE INSTALACIÓN 🎃
+════════════════════════════════════════════════════════════
+
+📋 REQUISITOS:
+- ESX Framework
+- ox_lib
+- Item "pumpkin" en la base de datos
+
+════════════════════════════════════════════════════════════
+
+📦 INSTALACIÓN DEL ITEM:
+
+1. Ejecuta el archivo "pumpkin_item.sql" en tu base de datos
+2. O agrega manualmente el item en tu tabla "items":
+
+INSERT INTO `items` (`name`, `label`, `weight`, `rare`, `can_remove`) VALUES
+('pumpkin', 'Calabaza de Halloween', 1, 0, 1);
+
+════════════════════════════════════════════════════════════
+
+⚙️ CONFIGURACIÓN:
+
+Edita el archivo config.lua para personalizar:
+
+- Ubicaciones de calabazas (Config.PumpkinLocations)
+- Cantidad de calabazas a recolectar (Config.Mission.pumpkinsToCollect)
+- Tiempo límite (Config.Mission.timeLimit)
+- Recompensas de intercambio (Config.Exchange)
+- Vehículo del evento (Config.Vehicle)
+- Ropa del evento (Config.Clothing)
+
+════════════════════════════════════════════════════════════
+
+🎮 CARACTERÍSTICAS:
+
+✅ Menú interactivo con ox_lib
+✅ Sistema de misiones con 5 calabazas
+✅ Efectos visuales de Halloween
+✅ Zombis hostiles
+✅ Sistema de intercambio de calabazas
+✅ Vehículo especial del evento
+✅ Ropa personalizada
+
+════════════════════════════════════════════════════════════
+
+📍 MENÚ PRINCIPAL:
+
+1. Iniciar Misión - Comienza el evento
+2. Detener Misión - Cancela la misión actual
+3. Intercambiar Calabazas - Canjea por recompensas
+   - Dinero ($10,000) = 10 calabazas
+   - Arma Especial = 15 calabazas
+   - Pack de Items = 8 calabazas
+4. Vehículo de Evento - Spawea moto Sanctus
+5. Ropa de Evento - Aplica outfit de Halloween
+
+════════════════════════════════════════════════════════════
+
+💡 RECOMPENSAS:
+
+Por cada calabaza recolectada: 1 calabaza (item)
+Al completar la misión: $5,000 de bonificación
+
+════════════════════════════════════════════════════════════
+
+🧟 DURANTE LA MISIÓN:
+
+- El clima cambia a tormenta
+- Se hace de noche (medianoche)
+- Filtros oscuros activados
+- 5 zombis por cada calabaza
+- Timer de 10 minutos
+
+════════════════════════════════════════════════════════════
+
