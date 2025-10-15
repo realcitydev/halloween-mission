@@ -20,7 +20,9 @@ Config.Mission = {
     },
     rewardPerPumpkin = {
         pumpkins = 1
-    }
+    },
+    multiplayerMode = true,
+    maxPlayersInLobby = 4
 }
 
 Config.Exchange = {
@@ -92,7 +94,7 @@ Config.Clothing = {
 }
 
 Config.PumpkinLocations = {
-    vector3(204.9, -933.3, 30.7),
+   vector3(204.9, -933.3, 30.7),
    vector3(-426.1, 1123.7, 325.9),
    vector3(2565.2, 4680.9, 34.1),
    vector3(-1037.5, -2737.9, 20.2),

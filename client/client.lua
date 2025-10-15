@@ -18,6 +18,10 @@ local canOpenMenu = true
 local originalClothing = nil
 local backgroundMusicId = nil
 local lastDamageTime = 0
+local hasRewardPending = false
+local currentLobby = nil
+local isLobbyLeader = false
+local lobbyPlayers = {}
 
 function CreateNPC()
     local model = GetHashKey(Config.NPC.model)
@@ -175,7 +179,7 @@ function StartMission()
     StartBackgroundMusic()
     
     TriggerEvent('chat:addMessage', { 
-        args = {"🎃 Halloween", "¡Misión iniciada! Recolecta " .. Config.Mission.pumpkinsToCollect .. " calabazas antes de que se acabe el tiempo!"} 
+        args = {"Halloween", "Misión iniciada! Recolecta " .. Config.Mission.pumpkinsToCollect .. " calabazas antes de que se acabe el tiempo!"} 
     })
     
     Citizen.Wait(500)
@@ -210,14 +214,8 @@ function EndMission(completed)
         pumpkinBlip = nil
     end
     
-    if eventVehicle and DoesEntityExist(eventVehicle) then
-        ESX.Game.DeleteVehicle(eventVehicle)
-        eventVehicle = nil
-    end
-    
     DeleteZombies()
     StopHalloweenEffects()
-    RestoreOriginalClothing()
     StopBackgroundMusic()
     
     AnimpostfxStop("DrugsMichaelAliensFight")
@@ -240,9 +238,24 @@ function EndMission(completed)
     
     if completed then
         TriggerServerEvent('halloween:completeMission', pumpkinsCollected)
+        hasRewardPending = true
+        if eventVehicle and DoesEntityExist(eventVehicle) then
+            TriggerEvent('chat:addMessage', { 
+                args = {"Halloween", "Misión completada! Vuelve al NPC para devolver el vehículo y recibir tu recompensa"} 
+            })
+        else
+            TriggerEvent('chat:addMessage', { 
+                args = {"Halloween", "Misión completada! Vuelve a hablar con el NPC para recibir tu recompensa"} 
+            })
+        end
     else
+        if eventVehicle and DoesEntityExist(eventVehicle) then
+            ESX.Game.DeleteVehicle(eventVehicle)
+            eventVehicle = nil
+        end
+        RestoreOriginalClothing()
         TriggerEvent('chat:addMessage', { 
-            args = {"🎃 Halloween", "Misión fallida. Solo recolectaste " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect .. " calabazas"} 
+            args = {"Halloween", "Misión fallida. Solo recolectaste " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect .. " calabazas"} 
         })
     end
     
@@ -258,78 +271,132 @@ end)
 function OpenMainMenu()
     local pumpkinCount = exports.ox_inventory:Search('count', 'pumpkin')
     
-    local menuOptions = {
-        {
-            title = 'Iniciar Misión',
-            description = missionActive and 'Ya tienes una misión activa' or 'Recolecta ' .. Config.Mission.pumpkinsToCollect .. ' calabazas',
-            icon = 'fas fa-play',
-            iconColor = missionActive and '#95a5a6' or '#2ecc71',
+    local menuOptions = {}
+    
+    if hasRewardPending then
+        if eventVehicle and DoesEntityExist(eventVehicle) then
+            table.insert(menuOptions, {
+                title = 'Devolver Vehículo y Reclamar Recompensa',
+                description = 'Debes devolver el vehículo para recibir tu recompensa',
+                icon = 'fas fa-motorcycle',
+                iconColor = '#e67e22',
+                onSelect = function()
+                    ESX.Game.DeleteVehicle(eventVehicle)
+                    eventVehicle = nil
+                    RestoreOriginalClothing()
+                    TriggerServerEvent('halloween:claimReward')
+                    hasRewardPending = false
+                    ESX.ShowNotification('Vehículo devuelto. Recompensa reclamada')
+                end
+            })
+        else
+            table.insert(menuOptions, {
+                title = 'Reclamar Recompensa',
+                description = 'Completaste la misión! Reclama tu recompensa',
+                icon = 'fas fa-gift',
+                iconColor = '#f1c40f',
+                onSelect = function()
+                    RestoreOriginalClothing()
+                    TriggerServerEvent('halloween:claimReward')
+                    hasRewardPending = false
+                    ESX.ShowNotification('Recompensa reclamada')
+                end
+            })
+        end
+    end
+    
+    if Config.Mission.multiplayerMode then
+        table.insert(menuOptions, {
+            title = currentLobby and 'Lobby Activo (' .. #lobbyPlayers .. '/' .. Config.Mission.maxPlayersInLobby .. ')' or 'Gestionar Lobby',
+            description = currentLobby and 'Administrar tu lobby actual' or 'Crear o unirse a un lobby para jugar en grupo',
+            icon = 'fas fa-users',
+            iconColor = currentLobby and '#3498db' or '#95a5a6',
             onSelect = function()
-                if missionActive then
-                    ESX.ShowNotification('Ya tienes una misión activa. Termínala primero.')
+                OpenLobbyMenu()
+            end
+        })
+    end
+    
+    table.insert(menuOptions, {
+        title = 'Iniciar Misión',
+        description = missionActive and 'Ya tienes una misión activa' or (currentLobby and isLobbyLeader and 'Iniciar misión para todo el lobby' or (currentLobby and not isLobbyLeader and 'Solo el líder puede iniciar' or 'Recolecta ' .. Config.Mission.pumpkinsToCollect .. ' calabazas')),
+        icon = 'fas fa-play',
+        iconColor = missionActive and '#95a5a6' or (currentLobby and not isLobbyLeader and '#95a5a6' or '#2ecc71'),
+        onSelect = function()
+            if missionActive then
+                ESX.ShowNotification('Ya tienes una misión activa. Termínala primero.')
+            elseif currentLobby and not isLobbyLeader then
+                ESX.ShowNotification('Solo el líder del lobby puede iniciar la misión')
+            else
+                if currentLobby then
+                    TriggerServerEvent('halloween:startLobbyMission', currentLobby)
                 else
                     StartMission()
                 end
             end
-        },
-        {
-            title = 'Detener Misión',
-            description = not missionActive and 'No hay misión activa' or 'Cancelar la misión actual',
-            icon = 'fas fa-stop',
-            iconColor = not missionActive and '#95a5a6' or '#e74c3c',
-            onSelect = function()
-                if not missionActive then
-                    ESX.ShowNotification('No hay ninguna misión activa para detener.')
-                else
-                    EndMission(false)
-                    ESX.ShowNotification('Misión cancelada')
-                end
+        end
+    })
+    
+    table.insert(menuOptions, {
+        title = 'Detener Misión',
+        description = not missionActive and 'No hay misión activa' or 'Cancelar la misión actual',
+        icon = 'fas fa-stop',
+        iconColor = not missionActive and '#95a5a6' or '#e74c3c',
+        onSelect = function()
+            if not missionActive then
+                ESX.ShowNotification('No hay ninguna misión activa para detener.')
+            else
+                EndMission(false)
+                ESX.ShowNotification('Misión cancelada')
             end
-        },
-        {
-            title = 'Intercambiar Calabazas',
-            description = pumpkinCount == 0 and 'No tienes calabazas' or 'Tienes: ' .. pumpkinCount .. ' calabazas',
-            icon = 'fas fa-exchange-alt',
-            iconColor = pumpkinCount == 0 and '#95a5a6' or '#f39c12',
-            onSelect = function()
-                if pumpkinCount == 0 then
-                    ESX.ShowNotification('No tienes calabazas para intercambiar. Completa misiones para obtenerlas.')
-                else
-                    OpenExchangeMenu()
-                end
+        end
+    })
+    
+    table.insert(menuOptions, {
+        title = 'Intercambiar Calabazas',
+        description = pumpkinCount == 0 and 'No tienes calabazas' or 'Tienes: ' .. pumpkinCount .. ' calabazas',
+        icon = 'fas fa-exchange-alt',
+        iconColor = pumpkinCount == 0 and '#95a5a6' or '#f39c12',
+        onSelect = function()
+            if pumpkinCount == 0 then
+                ESX.ShowNotification('No tienes calabazas para intercambiar. Completa misiones para obtenerlas.')
+            else
+                OpenExchangeMenu()
             end
-        },
-        {
-            title = 'Vehículo de Evento',
-            description = not missionActive and 'Requiere misión activa' or 'Solicitar vehículo especial',
-            icon = 'fas fa-motorcycle',
-            iconColor = not missionActive and '#95a5a6' or '#9b59b6',
-            onSelect = function()
-                if not missionActive then
-                    ESX.ShowNotification('Necesitas tener una misión activa para obtener el vehículo.')
-                else
-                    SpawnEventVehicle()
-                end
+        end
+    })
+    
+    table.insert(menuOptions, {
+        title = 'Vehículo de Evento',
+        description = not missionActive and 'Requiere misión activa' or 'Solicitar vehículo especial',
+        icon = 'fas fa-motorcycle',
+        iconColor = not missionActive and '#95a5a6' or '#9b59b6',
+        onSelect = function()
+            if not missionActive then
+                ESX.ShowNotification('Necesitas tener una misión activa para obtener el vehículo.')
+            else
+                SpawnEventVehicle()
             end
-        },
-        {
-            title = 'Ropa de Evento',
-            description = not missionActive and 'Requiere misión activa' or 'Obtener outfit de Halloween',
-            icon = 'fas fa-tshirt',
-            iconColor = not missionActive and '#95a5a6' or '#e67e22',
-            onSelect = function()
-                if not missionActive then
-                    ESX.ShowNotification('Necesitas tener una misión activa para obtener la ropa.')
-                else
-                    ApplyEventClothing()
-                end
+        end
+    })
+    
+    table.insert(menuOptions, {
+        title = 'Ropa de Evento',
+        description = not missionActive and 'Requiere misión activa' or 'Obtener outfit de Halloween',
+        icon = 'fas fa-tshirt',
+        iconColor = not missionActive and '#95a5a6' or '#e67e22',
+        onSelect = function()
+            if not missionActive then
+                ESX.ShowNotification('Necesitas tener una misión activa para obtener la ropa.')
+            else
+                ApplyEventClothing()
             end
-        }
-    }
+        end
+    })
     
     lib.registerContext({
         id = 'halloween_main_menu',
-        title = '🎃 Evento Halloween',
+        title = 'Evento Halloween',
         options = menuOptions
     })
     
@@ -363,12 +430,117 @@ function OpenExchangeMenu()
     
     lib.registerContext({
         id = 'exchange_menu',
-        title = '🎃 Intercambiar Calabazas',
+        title = 'Intercambiar Calabazas',
         menu = 'halloween_main_menu',
         options = exchangeOptions
     })
     
     lib.showContext('exchange_menu')
+end
+
+function OpenLobbyMenu()
+    if currentLobby then
+        local lobbyOptions = {}
+        
+        table.insert(lobbyOptions, {
+            title = 'Jugadores en el Lobby',
+            description = #lobbyPlayers .. ' jugadores conectados',
+            icon = 'fas fa-users',
+            iconColor = '#3498db',
+            disabled = true
+        })
+        
+        for _, playerId in ipairs(lobbyPlayers) do
+            table.insert(lobbyOptions, {
+                title = 'Jugador ID: ' .. playerId,
+                icon = playerId == GetPlayerServerId(PlayerId()) and 'fas fa-crown' or 'fas fa-user',
+                iconColor = playerId == GetPlayerServerId(PlayerId()) and '#f1c40f' or '#95a5a6',
+                disabled = true
+            })
+        end
+        
+        if isLobbyLeader then
+            table.insert(lobbyOptions, {
+                title = 'Disolver Lobby',
+                description = 'Cerrar el lobby actual',
+                icon = 'fas fa-times-circle',
+                iconColor = '#e74c3c',
+                onSelect = function()
+                    TriggerServerEvent('halloween:leaveLobby', currentLobby)
+                    currentLobby = nil
+                    isLobbyLeader = false
+                    lobbyPlayers = {}
+                    ESX.ShowNotification('Lobby disuelto')
+                    lib.hideContext()
+                end
+            })
+        else
+            table.insert(lobbyOptions, {
+                title = 'Salir del Lobby',
+                description = 'Abandonar el lobby actual',
+                icon = 'fas fa-sign-out-alt',
+                iconColor = '#e67e22',
+                onSelect = function()
+                    TriggerServerEvent('halloween:leaveLobby', currentLobby)
+                    currentLobby = nil
+                    isLobbyLeader = false
+                    lobbyPlayers = {}
+                    ESX.ShowNotification('Saliste del lobby')
+                    lib.hideContext()
+                end
+            })
+        end
+        
+        lib.registerContext({
+            id = 'lobby_menu',
+            title = 'Lobby Halloween',
+            menu = 'halloween_main_menu',
+            options = lobbyOptions
+        })
+        
+        lib.showContext('lobby_menu')
+    else
+        local lobbyOptions = {
+            {
+                title = 'Crear Lobby',
+                description = 'Crear un nuevo lobby para jugar con amigos',
+                icon = 'fas fa-plus-circle',
+                iconColor = '#2ecc71',
+                onSelect = function()
+                    TriggerServerEvent('halloween:createLobby')
+                    lib.hideContext()
+                end
+            },
+            {
+                title = 'Unirse a Lobby Cercano',
+                description = 'Buscar lobbies de jugadores cercanos',
+                icon = 'fas fa-search',
+                iconColor = '#3498db',
+                onSelect = function()
+                    TriggerServerEvent('halloween:findNearbyLobbies')
+                    lib.hideContext()
+                end
+            },
+            {
+                title = 'Jugar Solo',
+                description = 'Iniciar misión individual sin lobby',
+                icon = 'fas fa-user',
+                iconColor = '#95a5a6',
+                onSelect = function()
+                    lib.hideContext()
+                end
+            }
+        }
+        
+        lib.registerContext({
+            id = 'lobby_menu',
+            title = 'Lobby Halloween',
+            menu = 'halloween_main_menu',
+            options = lobbyOptions
+        })
+        
+        lib.showContext('lobby_menu')
+    end
 end
 
 function SpawnEventVehicle()
@@ -502,7 +674,7 @@ Citizen.CreateThread(function()
                         pumpkinsCollected = pumpkinsCollected + 1
                         
                         TriggerEvent('chat:addMessage', { 
-                            args = {"🎃 Halloween", "Calabaza recolectada " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect} 
+                            args = {"Halloween", "Calabaza recolectada " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect} 
                         })
                         
                         if pumpkinsCollected >= Config.Mission.pumpkinsToCollect then
@@ -686,6 +858,64 @@ Citizen.CreateThread(function()
     end
 end)
 
+RegisterNetEvent('halloween:lobbyCreated')
+AddEventHandler('halloween:lobbyCreated', function(lobbyId, players)
+    currentLobby = lobbyId
+    isLobbyLeader = true
+    lobbyPlayers = players
+    ESX.ShowNotification('Lobby creado exitosamente')
+end)
+
+RegisterNetEvent('halloween:joinedLobby')
+AddEventHandler('halloween:joinedLobby', function(lobbyId, players)
+    currentLobby = lobbyId
+    isLobbyLeader = false
+    lobbyPlayers = players
+    ESX.ShowNotification('Te uniste al lobby')
+end)
+
+RegisterNetEvent('halloween:lobbyUpdated')
+AddEventHandler('halloween:lobbyUpdated', function(players)
+    lobbyPlayers = players
+end)
+
+RegisterNetEvent('halloween:lobbyStartMission')
+AddEventHandler('halloween:lobbyStartMission', function()
+    StartMission()
+end)
+
+RegisterNetEvent('halloween:showNearbyLobbies')
+AddEventHandler('halloween:showNearbyLobbies', function(lobbies)
+    if #lobbies == 0 then
+        ESX.ShowNotification('No hay lobbies cercanos disponibles')
+        return
+    end
+    
+    local lobbyOptions = {}
+    
+    for _, lobby in ipairs(lobbies) do
+        table.insert(lobbyOptions, {
+            title = 'Lobby de ' .. lobby.leaderName,
+            description = lobby.playerCount .. '/' .. Config.Mission.maxPlayersInLobby .. ' jugadores',
+            icon = 'fas fa-users',
+            iconColor = '#3498db',
+            onSelect = function()
+                TriggerServerEvent('halloween:joinLobby', lobby.id)
+                lib.hideContext()
+            end
+        })
+    end
+    
+    lib.registerContext({
+        id = 'nearby_lobbies',
+        title = 'Lobbies Disponibles',
+        menu = 'lobby_menu',
+        options = lobbyOptions
+    })
+    
+    lib.showContext('nearby_lobbies')
+end)
+
 AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then return end
     
@@ -724,5 +954,9 @@ AddEventHandler('onResourceStop', function(resourceName)
     
     if savedHour and savedMinute then
         NetworkOverrideClockTime(savedHour, savedMinute, 0)
+    end
+    
+    if currentLobby then
+        TriggerServerEvent('halloween:leaveLobby', currentLobby)
     end
 end)
