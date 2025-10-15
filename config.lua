@@ -62,7 +62,7 @@ Config.Exchange = {
 
 Config.Vehicle = {
     model = "sanctus",
-    coords = vector4(206.0176, -931.2892, 30.6918, 145.1647),
+    coords = vector4(-1679.4551, -296.7683, 51.8120, 143.4243),
     plate = "HALLOW"
 }
 
