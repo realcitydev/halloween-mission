@@ -209,6 +209,11 @@ function EndMission(completed)
         pumpkinBlip = nil
     end
     
+    if eventVehicle and DoesEntityExist(eventVehicle) then
+        ESX.Game.DeleteVehicle(eventVehicle)
+        eventVehicle = nil
+    end
+    
     DeleteZombies()
     StopHalloweenEffects()
     RestoreOriginalClothing()
