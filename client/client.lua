@@ -282,19 +282,6 @@ function EndMission(completed)
     AnimpostfxStop("DeathFailNeutralIn")
     StopScreenEffect("ExplosionJosh3")
     
-    ClearTimecycleModifier()
-    ClearExtraTimecycleModifier()
-    SetTimecycleModifierStrength(0.0)
-    
-    ClearWeatherTypePersist()
-    ClearOverrideWeather()
-    SetWeatherTypeNow('CLEAR')
-    SetWeatherTypeNowPersist('CLEAR')
-    
-    if savedHour and savedMinute then
-        NetworkOverrideClockTime(savedHour, savedMinute, 0)
-    end
-    
     if completed then
         TriggerServerEvent('halloween:completeMission', pumpkinsCollected)
         hasRewardPending = true
@@ -308,6 +295,19 @@ function EndMission(completed)
             })
         end
     else
+        ClearTimecycleModifier()
+        ClearExtraTimecycleModifier()
+        SetTimecycleModifierStrength(0.0)
+        
+        ClearWeatherTypePersist()
+        ClearOverrideWeather()
+        SetWeatherTypeNow('CLEAR')
+        SetWeatherTypeNowPersist('CLEAR')
+        
+        if savedHour and savedMinute then
+            NetworkOverrideClockTime(savedHour, savedMinute, 0)
+        end
+        
         if eventVehicle and DoesEntityExist(eventVehicle) then
             ESX.Game.DeleteVehicle(eventVehicle)
             eventVehicle = nil
@@ -320,6 +320,23 @@ function EndMission(completed)
     
     pumpkinsCollected = 0
     usedLocations = {}
+end
+
+function CleanupHalloweenEffects()
+    ClearTimecycleModifier()
+    ClearExtraTimecycleModifier()
+    SetTimecycleModifierStrength(0.0)
+    
+    ClearWeatherTypePersist()
+    ClearOverrideWeather()
+    SetWeatherTypeNow('CLEAR')
+    SetWeatherTypeNowPersist('CLEAR')
+    
+    if savedHour and savedMinute then
+        NetworkOverrideClockTime(savedHour, savedMinute, 0)
+        savedHour = nil
+        savedMinute = nil
+    end
 end
 
 Citizen.CreateThread(function()
@@ -343,6 +360,7 @@ function OpenMainMenu()
                     ESX.Game.DeleteVehicle(eventVehicle)
                     eventVehicle = nil
                     RestoreOriginalClothing()
+                    CleanupHalloweenEffects()
                     TriggerServerEvent('halloween:claimReward')
                     hasRewardPending = false
                     ESX.ShowNotification('Vehículo devuelto. Recompensa reclamada')
@@ -356,6 +374,7 @@ function OpenMainMenu()
                 iconColor = '#f1c40f',
                 onSelect = function()
                     RestoreOriginalClothing()
+                    CleanupHalloweenEffects()
                     TriggerServerEvent('halloween:claimReward')
                     hasRewardPending = false
                     ESX.ShowNotification('Recompensa reclamada')
@@ -404,6 +423,8 @@ function OpenMainMenu()
         onSelect = function()
             if not missionActive then
                 ESX.ShowNotification('No hay ninguna misión activa para detener.')
+            elseif hasRewardPending then
+                ESX.ShowNotification('Debes reclamar tu recompensa primero')
             else
                 EndMission(false)
                 ESX.ShowNotification('Misión cancelada')
@@ -1067,24 +1088,13 @@ AddEventHandler('onResourceStop', function(resourceName)
     
     DeleteZombies()
     RestoreOriginalClothing()
+    CleanupHalloweenEffects()
     StopBackgroundMusic()
     
     AnimpostfxStop("DrugsMichaelAliensFight")
     StopScreenEffect("DeathFailMPIn")
     AnimpostfxStop("DeathFailNeutralIn")
     StopScreenEffect("ExplosionJosh3")
-    
-    ClearTimecycleModifier()
-    ClearExtraTimecycleModifier()
-    SetTimecycleModifierStrength(0.0)
-    ClearWeatherTypePersist()
-    ClearOverrideWeather()
-    SetWeatherTypeNow('CLEAR')
-    SetWeatherTypeNowPersist('CLEAR')
-    
-    if savedHour and savedMinute then
-        NetworkOverrideClockTime(savedHour, savedMinute, 0)
-    end
     
     if currentLobby then
         TriggerServerEvent('halloween:leaveLobby', currentLobby)
