@@ -22,6 +22,7 @@ local hasRewardPending = false
 local currentLobby = nil
 local isLobbyLeader = false
 local lobbyPlayers = {}
+local syncedZombies = {}
 
 function CreateNPC()
     local model = GetHashKey(Config.NPC.model)
@@ -49,20 +50,29 @@ function CreateNPC()
 end
 
 function SpawnPumpkin()
-    local availableLocations = {}
-    for i, location in ipairs(Config.PumpkinLocations) do
-        if not usedLocations[i] then
-            table.insert(availableLocations, {index = i, coords = location})
+    if currentLobby then
+        TriggerServerEvent('halloween:requestPumpkinSpawn', currentLobby, usedLocations)
+    else
+        local availableLocations = {}
+        for i, location in ipairs(Config.PumpkinLocations) do
+            if not usedLocations[i] then
+                table.insert(availableLocations, {index = i, coords = location})
+            end
         end
+        
+        if #availableLocations == 0 then
+            return false
+        end
+        
+        local selected = availableLocations[math.random(#availableLocations)]
+        CreatePumpkinAtLocation(selected.index, selected.coords)
+        return true
     end
-    
-    if #availableLocations == 0 then
-        return false
-    end
-    
-    local selected = availableLocations[math.random(#availableLocations)]
-    currentPumpkinCoords = selected.coords
-    usedLocations[selected.index] = true
+end
+
+function CreatePumpkinAtLocation(locationIndex, coords)
+    currentPumpkinCoords = coords
+    usedLocations[locationIndex] = true
     
     currentPumpkin = CreateObject(GetHashKey("prop_veg_crop_03_pump"), currentPumpkinCoords.x, currentPumpkinCoords.y, currentPumpkinCoords.z - 1.0, true, true, true)
     PlaceObjectOnGroundProperly(currentPumpkin)
@@ -76,9 +86,12 @@ function SpawnPumpkin()
     AddTextComponentString("Calabaza " .. (pumpkinsCollected + 1) .. "/" .. Config.Mission.pumpkinsToCollect)
     EndTextCommandSetBlipName(pumpkinBlip)
     
-    SpawnZombies()
+    if currentLobby then
+        TriggerServerEvent('halloween:requestZombieSpawn', currentLobby, currentPumpkinCoords)
+    else
+        SpawnZombies()
+    end
     attackStarted = false
-    return true
 end
 
 function SpawnZombies()
@@ -139,6 +152,51 @@ function SpawnZombies()
     attackStarted = false
 end
 
+function CreateSyncedZombie(zombieData)
+    local zombieModel = GetHashKey(zombieData.model)
+    RequestModel(zombieModel)
+    while not HasModelLoaded(zombieModel) do
+        Citizen.Wait(100)
+    end
+    
+    RequestAnimSet("move_m@drunk@verydrunk")
+    while not HasAnimSetLoaded("move_m@drunk@verydrunk") do
+        Citizen.Wait(100)
+    end
+    
+    local zombie = CreatePed(4, zombieModel, zombieData.coords.x, zombieData.coords.y, zombieData.coords.z, 0.0, true, true)
+    
+    SetEntityAsMissionEntity(zombie, true, true)
+    SetEntityHealth(zombie, 200)
+    SetPedMaxHealth(zombie, 200)
+    SetPedArmour(zombie, 0)
+    
+    SetPedMovementClipset(zombie, "move_m@drunk@verydrunk", 1.0)
+    SetPedRelationshipGroupHash(zombie, GetHashKey("HATES_PLAYER"))
+    SetPedFleeAttributes(zombie, 0, false)
+    SetPedSeeingRange(zombie, 100.0)
+    SetPedHearingRange(zombie, 100.0)
+    SetPedAlertness(zombie, 3)
+    SetBlockingOfNonTemporaryEvents(zombie, true)
+    SetPedPathCanUseClimbovers(zombie, false)
+    SetPedPathCanUseLadders(zombie, false)
+    SetPedConfigFlag(zombie, 208, true)
+    
+    ApplyPedDamagePack(zombie, "BigHitByVehicle", 0.0, 9.0)
+    SetPedCanRagdoll(zombie, true)
+    
+    DisablePedPainAudio(zombie, false)
+    local voices = {"PAIN_VOICE_1_MALE", "SCREAM_VOICE_1_MALE", "DEATH_VOICE_1_MALE"}
+    SetAmbientVoiceName(zombie, voices[math.random(#voices)])
+    
+    SetPedEyeColor(zombie, 2)
+    
+    TaskWanderInArea(zombie, zombieData.coords.x, zombieData.coords.y, zombieData.coords.z, 10.0, 0.5, 0.5)
+    
+    table.insert(zombies, zombie)
+    syncedZombies[zombieData.id] = zombie
+end
+
 function FollowPlayer()
     local player = PlayerPedId()
     for _, zombie in ipairs(zombies) do
@@ -155,6 +213,7 @@ function DeleteZombies()
         end
     end
     zombies = {}
+    syncedZombies = {}
 end
 
 function StopHalloweenEffects()
@@ -663,24 +722,28 @@ Citizen.CreateThread(function()
             if dist < 2.0 then
                     ESX.ShowHelpNotification("~INPUT_CONTEXT~ Recolectar calabaza (" .. (pumpkinsCollected + 1) .. "/" .. Config.Mission.pumpkinsToCollect .. ")")
                 if IsControlJustPressed(0, 38) then
-                        TriggerServerEvent('halloween:collectPumpkin')
-                        
-                        DeleteObject(currentPumpkin)
-                        RemoveBlip(pumpkinBlip)
-                        
-                        currentPumpkin = nil
-                        pumpkinBlip = nil
-                        
-                        pumpkinsCollected = pumpkinsCollected + 1
-                        
-                        TriggerEvent('chat:addMessage', { 
-                            args = {"Halloween", "Calabaza recolectada " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect} 
-                        })
-                        
-                        if pumpkinsCollected >= Config.Mission.pumpkinsToCollect then
-                            EndMission(true)
+                        if currentLobby then
+                            TriggerServerEvent('halloween:collectPumpkinLobby', currentLobby)
                         else
-                            SpawnPumpkin()
+                            TriggerServerEvent('halloween:collectPumpkin')
+                            
+                            DeleteObject(currentPumpkin)
+                            RemoveBlip(pumpkinBlip)
+                            
+                            currentPumpkin = nil
+                            pumpkinBlip = nil
+                            
+                            pumpkinsCollected = pumpkinsCollected + 1
+                            
+                            TriggerEvent('chat:addMessage', { 
+                                args = {"Halloween", "Calabaza recolectada " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect} 
+                            })
+                            
+                            if pumpkinsCollected >= Config.Mission.pumpkinsToCollect then
+                                EndMission(true)
+                            else
+                                SpawnPumpkin()
+                            end
                         end
                     end
                 end
@@ -858,6 +921,23 @@ Citizen.CreateThread(function()
     end
 end)
 
+Citizen.CreateThread(function()
+    while true do
+        Citizen.Wait(500)
+        
+        if missionActive and currentLobby and next(syncedZombies) then
+            for zombieId, zombie in pairs(syncedZombies) do
+                if DoesEntityExist(zombie) and IsEntityDead(zombie) then
+                    TriggerServerEvent('halloween:zombieDied', currentLobby, zombieId)
+                    syncedZombies[zombieId] = nil
+                end
+            end
+        else
+            Citizen.Wait(2000)
+        end
+    end
+end)
+
 RegisterNetEvent('halloween:lobbyCreated')
 AddEventHandler('halloween:lobbyCreated', function(lobbyId, players)
     currentLobby = lobbyId
@@ -882,6 +962,56 @@ end)
 RegisterNetEvent('halloween:lobbyStartMission')
 AddEventHandler('halloween:lobbyStartMission', function()
     StartMission()
+end)
+
+RegisterNetEvent('halloween:syncPumpkinSpawn')
+AddEventHandler('halloween:syncPumpkinSpawn', function(locationIndex, coords)
+    CreatePumpkinAtLocation(locationIndex, coords)
+end)
+
+RegisterNetEvent('halloween:syncZombieSpawn')
+AddEventHandler('halloween:syncZombieSpawn', function(zombiesData)
+    DeleteZombies()
+    syncedZombies = {}
+    
+    for _, zombieData in ipairs(zombiesData) do
+        CreateSyncedZombie(zombieData)
+    end
+    attackStarted = false
+end)
+
+RegisterNetEvent('halloween:syncZombieDeath')
+AddEventHandler('halloween:syncZombieDeath', function(zombieId)
+    local zombie = syncedZombies[zombieId]
+    if zombie and DoesEntityExist(zombie) then
+        SetEntityHealth(zombie, 0)
+        syncedZombies[zombieId] = nil
+    end
+end)
+
+RegisterNetEvent('halloween:syncPumpkinCollect')
+AddEventHandler('halloween:syncPumpkinCollect', function()
+    if currentPumpkin then
+        DeleteObject(currentPumpkin)
+        currentPumpkin = nil
+    end
+    
+    if pumpkinBlip then
+        RemoveBlip(pumpkinBlip)
+        pumpkinBlip = nil
+    end
+    
+    pumpkinsCollected = pumpkinsCollected + 1
+    
+    TriggerEvent('chat:addMessage', { 
+        args = {"Halloween", "Calabaza recolectada " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect} 
+    })
+    
+    if pumpkinsCollected >= Config.Mission.pumpkinsToCollect then
+        EndMission(true)
+    else
+        SpawnPumpkin()
+    end
 end)
 
 RegisterNetEvent('halloween:showNearbyLobbies')

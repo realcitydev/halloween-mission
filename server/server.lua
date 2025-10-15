@@ -213,6 +213,85 @@ AddEventHandler('halloween:startLobbyMission', function(lobbyId)
     end
 end)
 
+RegisterServerEvent('halloween:requestPumpkinSpawn')
+AddEventHandler('halloween:requestPumpkinSpawn', function(lobbyId, usedLocations)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby or lobby.leader ~= src then return end
+    
+    local availableLocations = {}
+    for i, location in ipairs(Config.PumpkinLocations) do
+        if not usedLocations[i] then
+            table.insert(availableLocations, {index = i, coords = location})
+        end
+    end
+    
+    if #availableLocations == 0 then return end
+    
+    local selected = availableLocations[math.random(#availableLocations)]
+    
+    for _, playerId in ipairs(lobby.players) do
+        TriggerClientEvent('halloween:syncPumpkinSpawn', playerId, selected.index, selected.coords)
+    end
+end)
+
+RegisterServerEvent('halloween:requestZombieSpawn')
+AddEventHandler('halloween:requestZombieSpawn', function(lobbyId, pumpkinCoords)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby or lobby.leader ~= src then return end
+    
+    local zombiesData = {}
+    
+    for i = 1, Config.Zombies.amount do
+        local zombieModel = Config.Zombies.models[math.random(#Config.Zombies.models)]
+        local offset = vector3(math.random(-Config.Zombies.spawnRadius, Config.Zombies.spawnRadius), math.random(-Config.Zombies.spawnRadius, Config.Zombies.spawnRadius), 0)
+        local spawnCoords = pumpkinCoords + offset
+        
+        table.insert(zombiesData, {
+            id = lobbyId .. '_zombie_' .. i .. '_' .. os.time(),
+            model = zombieModel,
+            coords = spawnCoords
+        })
+    end
+    
+    for _, playerId in ipairs(lobby.players) do
+        TriggerClientEvent('halloween:syncZombieSpawn', playerId, zombiesData)
+    end
+end)
+
+RegisterServerEvent('halloween:zombieDied')
+AddEventHandler('halloween:zombieDied', function(lobbyId, zombieId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby then return end
+    
+    for _, playerId in ipairs(lobby.players) do
+        if playerId ~= src then
+            TriggerClientEvent('halloween:syncZombieDeath', playerId, zombieId)
+        end
+    end
+end)
+
+RegisterServerEvent('halloween:collectPumpkinLobby')
+AddEventHandler('halloween:collectPumpkinLobby', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby then return end
+    
+    local canCarry = exports.ox_inventory:CanCarryItem(src, 'pumpkin', Config.Mission.rewardPerPumpkin.pumpkins)
+    if not canCarry then
+        TriggerClientEvent('esx:showNotification', src, 'No tienes espacio en el inventario')
+        return
+    end
+    
+    exports.ox_inventory:AddItem(src, 'pumpkin', Config.Mission.rewardPerPumpkin.pumpkins)
+    
+    for _, playerId in ipairs(lobby.players) do
+        TriggerClientEvent('halloween:syncPumpkinCollect', playerId)
+    end
+end)
+
 AddEventHandler('playerDropped', function()
     local src = source
     local lobbyId = playerLobbies[src]
