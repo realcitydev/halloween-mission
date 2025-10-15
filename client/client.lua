@@ -163,6 +163,7 @@ function StartMission()
         return
     end
     
+    
     missionActive = true
     pumpkinsCollected = 0
     usedLocations = {}
@@ -705,6 +706,7 @@ AddEventHandler('onResourceStop', function(resourceName)
     end
     
     DeleteZombies()
+    RestoreOriginalClothing()
     StopBackgroundMusic()
     
     AnimpostfxStop("DrugsMichaelAliensFight")
