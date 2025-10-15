@@ -1,8 +1,8 @@
 Config = {}
 
 Config.NPC = {
-    model = "s_m_m_movalien_01",
-    coords = vector4(207.6435, -933.1536, 30.6918, 67.5421),
+    model = "cs_bradcadaver",
+    coords = vector4(-1680.9419, -291.2061, 51.8835, 234.2983),
     blip = {
         enabled = true,
         sprite = 484,
