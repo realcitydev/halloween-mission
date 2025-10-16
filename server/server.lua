@@ -2,6 +2,7 @@ ESX = exports['es_extended']:getSharedObject()
 
 local halloweenLobbies = {}
 local playerLobbies = {}
+local vehicleSpawnCount = {}
 
 RegisterServerEvent('halloween:collectPumpkin')
 AddEventHandler('halloween:collectPumpkin', function()
@@ -104,6 +105,7 @@ AddEventHandler('halloween:createLobby', function()
     }
     
     playerLobbies[src] = lobbyId
+    vehicleSpawnCount[lobbyId] = 0
     
     TriggerClientEvent('halloween:lobbyCreated', src, lobbyId, {src})
 end)
@@ -133,8 +135,14 @@ AddEventHandler('halloween:joinLobby', function(lobbyId)
     table.insert(lobby.players, src)
     playerLobbies[src] = lobbyId
     
+    local playerName = xPlayer.getName()
+    
     for _, playerId in ipairs(lobby.players) do
-        TriggerClientEvent('halloween:lobbyUpdated', playerId, lobby.players)
+        if playerId ~= src then
+            TriggerClientEvent('halloween:lobbyUpdated', playerId, lobby.players, playerName)
+        else
+            TriggerClientEvent('halloween:lobbyUpdated', playerId, lobby.players, nil)
+        end
     end
     
     TriggerClientEvent('halloween:joinedLobby', src, lobbyId, lobby.players)
@@ -157,6 +165,7 @@ AddEventHandler('halloween:leaveLobby', function(lobbyId)
     
     if lobby.leader == src then
         halloweenLobbies[lobbyId] = nil
+        vehicleSpawnCount[lobbyId] = nil
         for _, playerId in ipairs(lobby.players) do
             playerLobbies[playerId] = nil
             TriggerClientEvent('halloween:lobbyUpdated', playerId, {})
@@ -165,6 +174,24 @@ AddEventHandler('halloween:leaveLobby', function(lobbyId)
     else
         for _, playerId in ipairs(lobby.players) do
             TriggerClientEvent('halloween:lobbyUpdated', playerId, lobby.players)
+        end
+    end
+end)
+
+RegisterServerEvent('halloween:dissolveLobby')
+AddEventHandler('halloween:dissolveLobby', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby or lobby.leader ~= src then return end
+    
+    halloweenLobbies[lobbyId] = nil
+    vehicleSpawnCount[lobbyId] = nil
+    
+    for _, playerId in ipairs(lobby.players) do
+        playerLobbies[playerId] = nil
+        TriggerClientEvent('halloween:lobbyUpdated', playerId, {})
+        if playerId ~= src then
+            TriggerClientEvent('esx:showNotification', playerId, 'El líder disolvió el lobby')
         end
     end
 end)
@@ -247,11 +274,17 @@ AddEventHandler('halloween:requestZombieSpawn', function(lobbyId, pumpkinCoords)
         local zombieModel = Config.Zombies.models[math.random(#Config.Zombies.models)]
         local offset = vector3(math.random(-Config.Zombies.spawnRadius, Config.Zombies.spawnRadius), math.random(-Config.Zombies.spawnRadius, Config.Zombies.spawnRadius), 0)
         local spawnCoords = pumpkinCoords + offset
+        local weapon = nil
+        
+        if Config.Zombies.useWeapons then
+            weapon = Config.Zombies.weapons[math.random(#Config.Zombies.weapons)]
+        end
         
         table.insert(zombiesData, {
             id = lobbyId .. '_zombie_' .. i .. '_' .. os.time(),
             model = zombieModel,
-            coords = spawnCoords
+            coords = spawnCoords,
+            weapon = weapon
         })
     end
     
@@ -287,8 +320,98 @@ AddEventHandler('halloween:collectPumpkinLobby', function(lobbyId)
     
     exports.ox_inventory:AddItem(src, 'pumpkin', Config.Mission.rewardPerPumpkin.pumpkins)
     
+    TriggerClientEvent('chat:addMessage', src, { 
+        args = {"Halloween", "Recibiste " .. Config.Mission.rewardPerPumpkin.pumpkins .. " calabaza"} 
+    })
+    
     for _, playerId in ipairs(lobby.players) do
         TriggerClientEvent('halloween:syncPumpkinCollect', playerId)
+    end
+end)
+
+RegisterServerEvent('halloween:cancelLobbyMission')
+AddEventHandler('halloween:cancelLobbyMission', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby or lobby.leader ~= src then return end
+    
+    for _, playerId in ipairs(lobby.players) do
+        TriggerClientEvent('halloween:lobbyCancelMission', playerId)
+    end
+end)
+
+RegisterServerEvent('halloween:requestVehicleSpawn')
+AddEventHandler('halloween:requestVehicleSpawn', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby then return end
+    
+    if not vehicleSpawnCount[lobbyId] then
+        vehicleSpawnCount[lobbyId] = 0
+    end
+    
+    local baseCoords = Config.Vehicle.baseCoords
+    local spacing = Config.Vehicle.spacing or 2.5
+    local offset = vehicleSpawnCount[lobbyId]
+    local direction = Config.Vehicle.spawnDirection or "right"
+    
+    local headingRad = 0
+    local offsetX = 0
+    local offsetY = 0
+    
+    if direction == "back" then
+        headingRad = math.rad(baseCoords.w - 90)
+        offsetX = math.cos(headingRad) * (spacing * offset)
+        offsetY = math.sin(headingRad) * (spacing * offset)
+    elseif direction == "forward" then
+        headingRad = math.rad(baseCoords.w + 90)
+        offsetX = math.cos(headingRad) * (spacing * offset)
+        offsetY = math.sin(headingRad) * (spacing * offset)
+    elseif direction == "left" then
+        headingRad = math.rad(baseCoords.w)
+        offsetX = math.cos(headingRad) * (spacing * offset)
+        offsetY = math.sin(headingRad) * (spacing * offset)
+    elseif direction == "right" then
+        headingRad = math.rad(baseCoords.w + 180)
+        offsetX = math.cos(headingRad) * (spacing * offset)
+        offsetY = math.sin(headingRad) * (spacing * offset)
+    end
+    
+    local spawnCoords = vector4(
+        baseCoords.x + offsetX,
+        baseCoords.y + offsetY,
+        baseCoords.z,
+        baseCoords.w
+    )
+    
+    vehicleSpawnCount[lobbyId] = vehicleSpawnCount[lobbyId] + 1
+    
+    TriggerClientEvent('halloween:spawnVehicleAtPosition', src, spawnCoords)
+end)
+
+RegisterServerEvent('halloween:transferLobbyLeadership')
+AddEventHandler('halloween:transferLobbyLeadership', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby or lobby.leader ~= src then return end
+    
+    for i, playerId in ipairs(lobby.players) do
+        if playerId ~= src then
+            lobby.leader = playerId
+            TriggerClientEvent('halloween:becomeLeader', playerId)
+            return
+        end
+    end
+end)
+
+RegisterServerEvent('halloween:activateZombieAttack')
+AddEventHandler('halloween:activateZombieAttack', function(lobbyId)
+    local src = source
+    local lobby = halloweenLobbies[lobbyId]
+    if not lobby then return end
+    
+    for _, playerId in ipairs(lobby.players) do
+        TriggerClientEvent('halloween:activateAttack', playerId)
     end
 end)
 
@@ -296,6 +419,16 @@ AddEventHandler('playerDropped', function()
     local src = source
     local lobbyId = playerLobbies[src]
     if lobbyId then
+        local lobby = halloweenLobbies[lobbyId]
+        if lobby and lobby.leader == src then
+            for i, playerId in ipairs(lobby.players) do
+                if playerId ~= src then
+                    lobby.leader = playerId
+                    TriggerClientEvent('halloween:becomeLeader', playerId)
+                    break
+                end
+            end
+        end
         TriggerEvent('halloween:leaveLobby', lobbyId)
     end
 end)

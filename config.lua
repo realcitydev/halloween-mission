@@ -22,7 +22,9 @@ Config.Mission = {
         pumpkins = 1
     },
     multiplayerMode = true,
-    maxPlayersInLobby = 4
+    maxPlayersInLobby = 4,
+    respawnOnDeath = true,
+    respawnCoords = vector4(-1681.3198, -292.4788, 51.8836, 222.3302)
 }
 
 Config.Exchange = {
@@ -64,8 +66,11 @@ Config.Exchange = {
 
 Config.Vehicle = {
     model = "sanctus",
-    coords = vector4(-1679.4551, -296.7683, 51.8120, 143.4243),
-    plate = "HALLOW"
+    baseCoords = vector4(-1679.4551, -296.7683, 51.8120, 143.4243),
+    plate = "HALLOW",
+    spacing = 2.5,
+    spawnDirection = "right",
+    autoWarp = false
 }
 
 Config.Clothing = {
@@ -116,7 +121,16 @@ Config.Zombies = {
         "a_m_y_hipster_01"
     },
     damagePerSecond = 5,
-    damageDistance = 2.0
+    damageDistanceWithWeapons = 50.0,
+    damageDistanceWithoutWeapons = 2.0,
+    useWeapons = true,
+    weapons = {
+        "WEAPON_PISTOL",
+        "WEAPON_PUMPSHOTGUN",
+        "WEAPON_MICROSMG",
+        "WEAPON_ASSAULTRIFLE"
+    },
+    accuracy = 50
 }
 
 Config.Effects = {

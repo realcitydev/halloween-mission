@@ -86,11 +86,7 @@ function CreatePumpkinAtLocation(locationIndex, coords)
     AddTextComponentString("Calabaza " .. (pumpkinsCollected + 1) .. "/" .. Config.Mission.pumpkinsToCollect)
     EndTextCommandSetBlipName(pumpkinBlip)
     
-    if currentLobby then
-        TriggerServerEvent('halloween:requestZombieSpawn', currentLobby, currentPumpkinCoords)
-    else
-        SpawnZombies()
-    end
+    SpawnZombies()
     attackStarted = false
 end
 
@@ -117,16 +113,27 @@ function SpawnZombies()
             groundZ = zCoord
         end
         
-        local zombie = CreatePed(4, zombieModel, spawnCoords.x, spawnCoords.y, groundZ, 0.0, true, true)
+        local zombie = CreatePed(4, zombieModel, spawnCoords.x, spawnCoords.y, groundZ, 0.0, false, true)
         
         SetEntityAsMissionEntity(zombie, true, true)
+        SetEntityVisible(zombie, true, false)
+        SetEntityAlpha(zombie, 255, false)
+        SetEntityCollision(zombie, true, true)
+        SetPedCanBeTargetted(zombie, true)
+        SetPedCanBeTargettedByPlayer(zombie, PlayerId(), true)
         SetEntityHealth(zombie, 200)
         SetPedMaxHealth(zombie, 200)
         SetPedArmour(zombie, 0)
         
-        SetPedMovementClipset(zombie, "move_m@drunk@verydrunk", 1.0)
-        SetPedRelationshipGroupHash(zombie, GetHashKey("HATES_PLAYER"))
+        if not Config.Zombies.useWeapons then
+            SetPedMovementClipset(zombie, "move_m@drunk@verydrunk", 1.0)
+        end
+        
+        SetPedRelationshipGroupHash(zombie, GetHashKey("MISSION2"))
         SetPedFleeAttributes(zombie, 0, false)
+        SetPedCombatAttributes(zombie, 46, true)
+        SetPedCombatAttributes(zombie, 5, true)
+        SetPedCombatMovement(zombie, 2)
         SetPedSeeingRange(zombie, 100.0)
         SetPedHearingRange(zombie, 100.0)
         SetPedAlertness(zombie, 3)
@@ -134,6 +141,20 @@ function SpawnZombies()
         SetPedPathCanUseClimbovers(zombie, false)
         SetPedPathCanUseLadders(zombie, false)
         SetPedConfigFlag(zombie, 208, true)
+        SetPedConfigFlag(zombie, 281, true)
+        SetCanAttackFriendly(zombie, false, false)
+        
+        if Config.Zombies.useWeapons then
+            local weapon = Config.Zombies.weapons[math.random(#Config.Zombies.weapons)]
+            GiveWeaponToPed(zombie, GetHashKey(weapon), 250, false, true)
+            SetCurrentPedWeapon(zombie, GetHashKey(weapon), true)
+            SetPedCombatAbility(zombie, 100)
+            SetPedCombatRange(zombie, 2)
+            SetPedAccuracy(zombie, Config.Zombies.accuracy)
+        else
+            SetPedCombatAbility(zombie, 100)
+            SetPedCombatRange(zombie, 0)
+        end
         
         ApplyPedDamagePack(zombie, "BigHitByVehicle", 0.0, 9.0)
         SetPedCanRagdoll(zombie, true)
@@ -144,6 +165,9 @@ function SpawnZombies()
         
         SetPedEyeColor(zombie, 2)
         
+        SetEntityDrawOutline(zombie, false)
+        FreezeEntityPosition(zombie, false)
+        
         TaskWanderInArea(zombie, currentPumpkinCoords.x, currentPumpkinCoords.y, currentPumpkinCoords.z, 10.0, 0.5, 0.5)
         
         table.insert(zombies, zombie)
@@ -152,56 +176,13 @@ function SpawnZombies()
     attackStarted = false
 end
 
-function CreateSyncedZombie(zombieData)
-    local zombieModel = GetHashKey(zombieData.model)
-    RequestModel(zombieModel)
-    while not HasModelLoaded(zombieModel) do
-        Citizen.Wait(100)
-    end
-    
-    RequestAnimSet("move_m@drunk@verydrunk")
-    while not HasAnimSetLoaded("move_m@drunk@verydrunk") do
-        Citizen.Wait(100)
-    end
-    
-    local zombie = CreatePed(4, zombieModel, zombieData.coords.x, zombieData.coords.y, zombieData.coords.z, 0.0, true, true)
-    
-    SetEntityAsMissionEntity(zombie, true, true)
-    SetEntityHealth(zombie, 200)
-    SetPedMaxHealth(zombie, 200)
-    SetPedArmour(zombie, 0)
-    
-    SetPedMovementClipset(zombie, "move_m@drunk@verydrunk", 1.0)
-    SetPedRelationshipGroupHash(zombie, GetHashKey("HATES_PLAYER"))
-    SetPedFleeAttributes(zombie, 0, false)
-    SetPedSeeingRange(zombie, 100.0)
-    SetPedHearingRange(zombie, 100.0)
-    SetPedAlertness(zombie, 3)
-    SetBlockingOfNonTemporaryEvents(zombie, true)
-    SetPedPathCanUseClimbovers(zombie, false)
-    SetPedPathCanUseLadders(zombie, false)
-    SetPedConfigFlag(zombie, 208, true)
-    
-    ApplyPedDamagePack(zombie, "BigHitByVehicle", 0.0, 9.0)
-    SetPedCanRagdoll(zombie, true)
-    
-    DisablePedPainAudio(zombie, false)
-    local voices = {"PAIN_VOICE_1_MALE", "SCREAM_VOICE_1_MALE", "DEATH_VOICE_1_MALE"}
-    SetAmbientVoiceName(zombie, voices[math.random(#voices)])
-    
-    SetPedEyeColor(zombie, 2)
-    
-    TaskWanderInArea(zombie, zombieData.coords.x, zombieData.coords.y, zombieData.coords.z, 10.0, 0.5, 0.5)
-    
-    table.insert(zombies, zombie)
-    syncedZombies[zombieData.id] = zombie
-end
 
 function FollowPlayer()
     local player = PlayerPedId()
+    
     for _, zombie in ipairs(zombies) do
         if DoesEntityExist(zombie) and not IsEntityDead(zombie) then
-            TaskGoToEntity(zombie, player, -1, 1.0, 2.0, 1073741824, 0)
+            TaskCombatPed(zombie, player, -1, 0)
         end
     end
 end
@@ -209,9 +190,13 @@ end
 function DeleteZombies()
     for _, zombie in ipairs(zombies) do
         if DoesEntityExist(zombie) then
+            ClearPedTasksImmediately(zombie)
+            SetEntityAsMissionEntity(zombie, false, true)
+            DeletePed(zombie)
             DeleteEntity(zombie)
         end
     end
+    
     zombies = {}
     syncedZombies = {}
 end
@@ -258,22 +243,26 @@ function StopBackgroundMusic()
     end
 end
 
-function EndMission(completed)
+function EndMission(completed, isDeath)
     if not missionActive then return end
     
     missionActive = false
+    attackStarted = false
     
-    if currentPumpkin then
+    if currentPumpkin and DoesEntityExist(currentPumpkin) then
+        SetEntityAsMissionEntity(currentPumpkin, false, true)
         DeleteObject(currentPumpkin)
+        DeleteEntity(currentPumpkin)
         currentPumpkin = nil
     end
     
-    if pumpkinBlip then
+    if pumpkinBlip and DoesBlipExist(pumpkinBlip) then
         RemoveBlip(pumpkinBlip)
         pumpkinBlip = nil
     end
     
     DeleteZombies()
+    
     StopHalloweenEffects()
     StopBackgroundMusic()
     
@@ -313,9 +302,16 @@ function EndMission(completed)
             eventVehicle = nil
         end
         RestoreOriginalClothing()
-        TriggerEvent('chat:addMessage', { 
-            args = {"Halloween", "Misión fallida. Solo recolectaste " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect .. " calabazas"} 
-        })
+        
+        if isDeath then
+            TriggerEvent('chat:addMessage', { 
+                args = {"Halloween", "Moriste durante la misión. Los demás jugadores continúan."} 
+            })
+        else
+            TriggerEvent('chat:addMessage', { 
+                args = {"Halloween", "Misión fallida. Solo recolectaste " .. pumpkinsCollected .. "/" .. Config.Mission.pumpkinsToCollect .. " calabazas"} 
+            })
+        end
     end
     
     pumpkinsCollected = 0
@@ -341,6 +337,12 @@ end
 
 Citizen.CreateThread(function()
     Citizen.Wait(1000)
+    
+    AddRelationshipGroup("MISSION2")
+    SetRelationshipBetweenGroups(0, GetHashKey("MISSION2"), GetHashKey("MISSION2"))
+    SetRelationshipBetweenGroups(5, GetHashKey("MISSION2"), GetHashKey("PLAYER"))
+    SetRelationshipBetweenGroups(5, GetHashKey("PLAYER"), GetHashKey("MISSION2"))
+    
     CreateNPC()
 end)
 
@@ -540,16 +542,35 @@ function OpenLobbyMenu()
         end
         
         if isLobbyLeader then
+            if missionActive then
+                table.insert(lobbyOptions, {
+                    title = 'Cancelar Misión del Lobby',
+                    description = 'Cancelar la misión para todos los jugadores',
+                    icon = 'fas fa-ban',
+                    iconColor = '#e74c3c',
+                    onSelect = function()
+                        TriggerServerEvent('halloween:cancelLobbyMission', currentLobby)
+                        ESX.ShowNotification('Misión cancelada para todos')
+                        lib.hideContext()
+                    end
+                })
+            end
+            
             table.insert(lobbyOptions, {
                 title = 'Disolver Lobby',
                 description = 'Cerrar el lobby actual',
                 icon = 'fas fa-times-circle',
                 iconColor = '#e74c3c',
                 onSelect = function()
-                    TriggerServerEvent('halloween:leaveLobby', currentLobby)
+                    TriggerServerEvent('halloween:dissolveLobby', currentLobby)
                     currentLobby = nil
                     isLobbyLeader = false
                     lobbyPlayers = {}
+                    
+                    local playerPed = PlayerPedId()
+                    SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+                    SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+                    
                     ESX.ShowNotification('Lobby disuelto')
                     lib.hideContext()
                 end
@@ -565,6 +586,11 @@ function OpenLobbyMenu()
                     currentLobby = nil
                     isLobbyLeader = false
                     lobbyPlayers = {}
+                    
+                    local playerPed = PlayerPedId()
+                    SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+                    SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+                    
                     ESX.ShowNotification('Saliste del lobby')
                     lib.hideContext()
                 end
@@ -629,16 +655,49 @@ function SpawnEventVehicle()
         Citizen.Wait(100)
     end
     
-    local playerPed = PlayerPedId()
-    local coords = GetEntityCoords(playerPed)
+    if currentLobby then
+        TriggerServerEvent('halloween:requestVehicleSpawn', currentLobby)
+    else
+        local playerPed = PlayerPedId()
+        local spawnCoords = Config.Vehicle.baseCoords
+        
+        ESX.Game.SpawnVehicle(Config.Vehicle.model, spawnCoords, spawnCoords.w, function(vehicle)
+            eventVehicle = vehicle
+            SetVehicleNumberPlateText(vehicle, Config.Vehicle.plate)
+            
+            if Config.Vehicle.autoWarp then
+                TaskWarpPedIntoVehicle(playerPed, vehicle, -1)
+                ESX.ShowNotification('Vehículo de Halloween spawneado')
+            else
+                TaskEnterVehicle(playerPed, vehicle, -1, -1, 1.0, 1, 0)
+                ESX.ShowNotification('Caminando hacia el vehículo...')
+            end
+        end)
+    end
+end
+
+RegisterNetEvent('halloween:spawnVehicleAtPosition')
+AddEventHandler('halloween:spawnVehicleAtPosition', function(spawnCoords)
+    if eventVehicle and DoesEntityExist(eventVehicle) then
+        ESX.Game.DeleteVehicle(eventVehicle)
+        Citizen.Wait(100)
+    end
     
-    ESX.Game.SpawnVehicle(Config.Vehicle.model, Config.Vehicle.coords, Config.Vehicle.coords.w, function(vehicle)
+    local playerPed = PlayerPedId()
+    
+    ESX.Game.SpawnVehicle(Config.Vehicle.model, spawnCoords, spawnCoords.w, function(vehicle)
         eventVehicle = vehicle
         SetVehicleNumberPlateText(vehicle, Config.Vehicle.plate)
-        TaskWarpPedIntoVehicle(playerPed, vehicle, -1)
-        ESX.ShowNotification('Vehículo de Halloween spawneado')
+        
+        if Config.Vehicle.autoWarp then
+            TaskWarpPedIntoVehicle(playerPed, vehicle, -1)
+            ESX.ShowNotification('Vehículo de Halloween spawneado')
+        else
+            TaskEnterVehicle(playerPed, vehicle, -1, -1, 1.0, 1, 0)
+            ESX.ShowNotification('Caminando hacia el vehículo...')
+        end
     end)
-end
+end)
 
 function SaveOriginalClothing()
     local playerPed = PlayerPedId()
@@ -732,8 +791,12 @@ Citizen.CreateThread(function()
                 end
                 
             if dist < Config.Zombies.attackDistance and not attackStarted then
-                FollowPlayer()
-                attackStarted = true
+                if currentLobby then
+                    TriggerServerEvent('halloween:activateZombieAttack', currentLobby)
+                else
+                    FollowPlayer()
+                    attackStarted = true
+                end
             end
                 
                 if dist < 15.0 then
@@ -835,7 +898,7 @@ Citizen.CreateThread(function()
     while true do
         local wait = 1000
         
-        if missionActive and #zombies > 0 then
+        if missionActive and #zombies > 0 and not Config.Zombies.useWeapons then
             local playerPed = PlayerPedId()
             local playerCoords = GetEntityCoords(playerPed)
             local currentHealth = GetEntityHealth(playerPed)
@@ -845,7 +908,7 @@ Citizen.CreateThread(function()
                     local zombieCoords = GetEntityCoords(zombie)
                     local dist = #(playerCoords - zombieCoords)
                     
-                    if dist < Config.Zombies.damageDistance then
+                    if dist < Config.Zombies.damageDistanceWithoutWeapons then
                         wait = 500
                         if currentHealth > 100 then
                             SetEntityHealth(playerPed, currentHealth - Config.Zombies.damagePerSecond)
@@ -942,15 +1005,50 @@ Citizen.CreateThread(function()
     end
 end)
 
+
 Citizen.CreateThread(function()
     while true do
-        Citizen.Wait(500)
+        Citizen.Wait(2000)
         
-        if missionActive and currentLobby and next(syncedZombies) then
-            for zombieId, zombie in pairs(syncedZombies) do
-                if DoesEntityExist(zombie) and IsEntityDead(zombie) then
-                    TriggerServerEvent('halloween:zombieDied', currentLobby, zombieId)
-                    syncedZombies[zombieId] = nil
+        if not missionActive then
+            if currentPumpkin and DoesEntityExist(currentPumpkin) then
+                SetEntityAsMissionEntity(currentPumpkin, false, true)
+                DeleteObject(currentPumpkin)
+                DeleteEntity(currentPumpkin)
+                currentPumpkin = nil
+            end
+            
+            if pumpkinBlip and DoesBlipExist(pumpkinBlip) then
+                RemoveBlip(pumpkinBlip)
+                pumpkinBlip = nil
+            end
+            
+            for _, zombie in ipairs(zombies) do
+                if DoesEntityExist(zombie) then
+                    ClearPedTasksImmediately(zombie)
+                    SetEntityAsMissionEntity(zombie, false, true)
+                    DeletePed(zombie)
+                    DeleteEntity(zombie)
+                end
+            end
+            zombies = {}
+            syncedZombies = {}
+        end
+        
+        Citizen.Wait(3000)
+    end
+end)
+
+Citizen.CreateThread(function()
+    while true do
+        Citizen.Wait(2000)
+        
+        if missionActive and attackStarted then
+            local playerPed = PlayerPedId()
+            
+            for _, zombie in ipairs(zombies) do
+                if DoesEntityExist(zombie) and not IsEntityDead(zombie) then
+                    TaskCombatPed(zombie, playerPed, -1, 0)
                 end
             end
         else
@@ -967,6 +1065,24 @@ AddEventHandler('halloween:lobbyCreated', function(lobbyId, players)
     ESX.ShowNotification('Lobby creado exitosamente')
 end)
 
+RegisterNetEvent('halloween:becomeLeader')
+AddEventHandler('halloween:becomeLeader', function()
+    isLobbyLeader = true
+    ESX.ShowNotification('Ahora eres el líder del lobby')
+    
+    if missionActive and currentPumpkinCoords then
+        TriggerServerEvent('halloween:requestZombieSpawn', currentLobby, currentPumpkinCoords)
+    end
+end)
+
+RegisterNetEvent('halloween:activateAttack')
+AddEventHandler('halloween:activateAttack', function()
+    if not attackStarted then
+        attackStarted = true
+        FollowPlayer()
+    end
+end)
+
 RegisterNetEvent('halloween:joinedLobby')
 AddEventHandler('halloween:joinedLobby', function(lobbyId, players)
     currentLobby = lobbyId
@@ -976,8 +1092,83 @@ AddEventHandler('halloween:joinedLobby', function(lobbyId, players)
 end)
 
 RegisterNetEvent('halloween:lobbyUpdated')
-AddEventHandler('halloween:lobbyUpdated', function(players)
+AddEventHandler('halloween:lobbyUpdated', function(players, newPlayerName)
     lobbyPlayers = players
+    if newPlayerName then
+        TriggerEvent('chat:addMessage', { 
+            args = {"Lobby", newPlayerName .. " se unió al lobby"} 
+        })
+    end
+    
+    if #players == 0 then
+        currentLobby = nil
+        isLobbyLeader = false
+        lobbyPlayers = {}
+        
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+        SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+    end
+end)
+
+RegisterNetEvent('halloween:lobbyCancelMission')
+AddEventHandler('halloween:lobbyCancelMission', function()
+    if missionActive then
+        missionActive = false
+        attackStarted = false
+        
+        if currentPumpkin and DoesEntityExist(currentPumpkin) then
+            SetEntityAsMissionEntity(currentPumpkin, false, true)
+            DeleteObject(currentPumpkin)
+            DeleteEntity(currentPumpkin)
+            currentPumpkin = nil
+        end
+        
+        if pumpkinBlip and DoesBlipExist(pumpkinBlip) then
+            RemoveBlip(pumpkinBlip)
+            pumpkinBlip = nil
+        end
+        
+        DeleteZombies()
+        
+        StopHalloweenEffects()
+        StopBackgroundMusic()
+        
+        AnimpostfxStop("DrugsMichaelAliensFight")
+        StopScreenEffect("DeathFailMPIn")
+        AnimpostfxStop("DeathFailNeutralIn")
+        StopScreenEffect("ExplosionJosh3")
+        
+        ClearTimecycleModifier()
+        ClearExtraTimecycleModifier()
+        SetTimecycleModifierStrength(0.0)
+        
+        ClearWeatherTypePersist()
+        ClearOverrideWeather()
+        SetWeatherTypeNow('CLEAR')
+        SetWeatherTypeNowPersist('CLEAR')
+        
+        if savedHour and savedMinute then
+            NetworkOverrideClockTime(savedHour, savedMinute, 0)
+        end
+        
+        if eventVehicle and DoesEntityExist(eventVehicle) then
+            ESX.Game.DeleteVehicle(eventVehicle)
+            eventVehicle = nil
+        end
+        
+        RestoreOriginalClothing()
+        
+        ESX.ShowNotification('El líder canceló la misión')
+        
+        Citizen.Wait(500)
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+        SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+        
+        pumpkinsCollected = 0
+        usedLocations = {}
+    end
 end)
 
 RegisterNetEvent('halloween:lobbyStartMission')
@@ -990,37 +1181,22 @@ AddEventHandler('halloween:syncPumpkinSpawn', function(locationIndex, coords)
     CreatePumpkinAtLocation(locationIndex, coords)
 end)
 
-RegisterNetEvent('halloween:syncZombieSpawn')
-AddEventHandler('halloween:syncZombieSpawn', function(zombiesData)
-    DeleteZombies()
-    syncedZombies = {}
-    
-    for _, zombieData in ipairs(zombiesData) do
-        CreateSyncedZombie(zombieData)
-    end
-    attackStarted = false
-end)
-
-RegisterNetEvent('halloween:syncZombieDeath')
-AddEventHandler('halloween:syncZombieDeath', function(zombieId)
-    local zombie = syncedZombies[zombieId]
-    if zombie and DoesEntityExist(zombie) then
-        SetEntityHealth(zombie, 0)
-        syncedZombies[zombieId] = nil
-    end
-end)
 
 RegisterNetEvent('halloween:syncPumpkinCollect')
 AddEventHandler('halloween:syncPumpkinCollect', function()
-    if currentPumpkin then
+    if currentPumpkin and DoesEntityExist(currentPumpkin) then
+        SetEntityAsMissionEntity(currentPumpkin, false, true)
         DeleteObject(currentPumpkin)
+        DeleteEntity(currentPumpkin)
         currentPumpkin = nil
     end
     
-    if pumpkinBlip then
+    if pumpkinBlip and DoesBlipExist(pumpkinBlip) then
         RemoveBlip(pumpkinBlip)
         pumpkinBlip = nil
     end
+    
+    DeleteZombies()
     
     pumpkinsCollected = pumpkinsCollected + 1
     
@@ -1031,6 +1207,7 @@ AddEventHandler('halloween:syncPumpkinCollect', function()
     if pumpkinsCollected >= Config.Mission.pumpkinsToCollect then
         EndMission(true)
     else
+        Citizen.Wait(500)
         SpawnPumpkin()
     end
 end)
@@ -1067,6 +1244,75 @@ AddEventHandler('halloween:showNearbyLobbies', function(lobbies)
     lib.showContext('nearby_lobbies')
 end)
 
+AddEventHandler('esx:onPlayerDeath', function()
+    if missionActive and Config.Mission.respawnOnDeath then
+        if currentLobby and isLobbyLeader then
+            TriggerServerEvent('halloween:transferLobbyLeadership', currentLobby)
+        end
+        
+        Citizen.Wait(2000)
+        
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+        SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+        
+        TriggerEvent('esx_ambulancejob:revive')
+        
+        if not currentLobby then
+            Citizen.Wait(1000)
+            EndMission(false, true)
+        else
+            ESX.ShowNotification('Moriste. Continúa ayudando a tu equipo!')
+        end
+    end
+end)
+
+AddEventHandler('baseevents:onPlayerDied', function()
+    if missionActive and Config.Mission.respawnOnDeath then
+        if currentLobby and isLobbyLeader then
+            TriggerServerEvent('halloween:transferLobbyLeadership', currentLobby)
+        end
+        
+        Citizen.Wait(2000)
+        
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+        SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+        
+        TriggerEvent('esx_ambulancejob:revive')
+        
+        if not currentLobby then
+            Citizen.Wait(1000)
+            EndMission(false, true)
+        else
+            ESX.ShowNotification('Moriste. Continúa ayudando a tu equipo!')
+        end
+    end
+end)
+
+AddEventHandler('baseevents:onPlayerKilled', function()
+    if missionActive and Config.Mission.respawnOnDeath then
+        if currentLobby and isLobbyLeader then
+            TriggerServerEvent('halloween:transferLobbyLeadership', currentLobby)
+        end
+        
+        Citizen.Wait(2000)
+        
+        local playerPed = PlayerPedId()
+        SetEntityCoords(playerPed, Config.Mission.respawnCoords.x, Config.Mission.respawnCoords.y, Config.Mission.respawnCoords.z)
+        SetEntityHeading(playerPed, Config.Mission.respawnCoords.w)
+        
+        TriggerEvent('esx_ambulancejob:revive')
+        
+        if not currentLobby then
+            Citizen.Wait(1000)
+            EndMission(false, true)
+        else
+            ESX.ShowNotification('Moriste. Continúa ayudando a tu equipo!')
+        end
+    end
+end)
+
 AddEventHandler('onResourceStop', function(resourceName)
     if GetCurrentResourceName() ~= resourceName then return end
     
@@ -1074,15 +1320,18 @@ AddEventHandler('onResourceStop', function(resourceName)
         DeleteEntity(npcPed)
     end
     
-    if currentPumpkin then
+    if currentPumpkin and DoesEntityExist(currentPumpkin) then
+        SetEntityAsMissionEntity(currentPumpkin, false, true)
         DeleteObject(currentPumpkin)
+        DeleteEntity(currentPumpkin)
     end
     
-    if pumpkinBlip then
+    if pumpkinBlip and DoesBlipExist(pumpkinBlip) then
         RemoveBlip(pumpkinBlip)
     end
     
     if eventVehicle and DoesEntityExist(eventVehicle) then
+        ESX.Game.DeleteVehicle(eventVehicle)
         DeleteEntity(eventVehicle)
     end
     
