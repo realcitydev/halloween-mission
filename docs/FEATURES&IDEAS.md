@@ -7,9 +7,9 @@ IDEAS:
 FEATURES:
 [ ] Crear la historia de la misión
 [ ] Añadir dialogo con el NPC
-[ ] Cuando te acerques a 50m de la iglesia que se te ponga el tiempo de halloween
+[x] Cuando te acerques a 50m de la iglesia que se te ponga el tiempo de halloween
 [ ] Mejorar los ataques de los "entes" que persiguen al jugador
-[ ] Contador para la misión
+[x] Contador para la misión
 [ ] Integración con audios para reproducción de sonidos y voces.
 [ ] Hacer musica con SUNO para ambientar las misión y la inmersión del jugador
 [ ] Añadir cooldown al NPC

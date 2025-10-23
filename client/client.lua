@@ -202,7 +202,48 @@ function DeleteZombies()
 end
 
 function StopHalloweenEffects()
-    inHalloweenZone = false
+    DeactivateHalloweenZone()
+end
+
+function ActivateHalloweenZone()
+    if not inHalloweenZone then
+        inHalloweenZone = true
+        if not savedHour then
+            savedHour = GetClockHours()
+            savedMinute = GetClockMinutes()
+        end
+        NetworkOverrideClockTime(0, 0, 0)
+        SetWeatherTypePersist('THUNDER')
+        SetWeatherTypeNowPersist('THUNDER')
+        SetRainLevel(0.5)
+        SetWindSpeed(15.0)
+        SetTimecycleModifier('MP_Celeb_Lose')
+        SetTimecycleModifierStrength(0.8)
+        SetExtraTimecycleModifier('cinema')
+        SetExtraTimecycleModifierStrength(0.5)
+    end
+end
+
+function DeactivateHalloweenZone()
+    if inHalloweenZone then
+        inHalloweenZone = false
+        ClearTimecycleModifier()
+        ClearExtraTimecycleModifier()
+        SetTimecycleModifierStrength(0.0)
+        
+        ClearWeatherTypePersist()
+        ClearOverrideWeather()
+        SetWeatherTypeNow('CLEAR')
+        SetWeatherTypeNowPersist('CLEAR')
+        
+        if savedHour and savedMinute then
+            NetworkOverrideClockTime(savedHour, savedMinute, 0)
+        end
+        if not missionActive then
+            savedHour = nil
+            savedMinute = nil
+        end
+    end
 end
 
 function StartMission()
@@ -885,11 +926,85 @@ Citizen.CreateThread(function()
         if missionActive then
             local elapsed = (GetGameTimer() - missionStartTime) / 1000
             if elapsed >= Config.Mission.timeLimit then
-                EndMission(false)
+                -- tiempo expirado: reproducir cinematica de sacrificio y finalizar como muerte
+                PlaySacrificeCinematic()
             end
             Citizen.Wait(1000)
         else
             Citizen.Wait(5000)
+        end
+    end
+end)
+
+-- Reproduce una cinematica simple de sacrificio cuando se agota el tiempo
+function PlaySacrificeCinematic()
+    if not missionActive then return end
+
+    local playerPed = PlayerPedId()
+
+    -- Evitar que el jugador haga acciones
+    FreezeEntityPosition(playerPed, true)
+    ClearPedTasksImmediately(playerPed)
+
+    -- Fundido a negro
+    DoScreenFadeOut(1000)
+    Citizen.Wait(1200)
+
+    -- Efectos sonoros/visuales sencillos
+    StartScreenEffect("DeathFailMPIn", 0, false)
+    AnimpostfxPlay("DeathFailNeutralIn", 0, false)
+
+    -- Mostrar mensaje en chat
+    TriggerEvent('chat:addMessage', {
+        args = {"Halloween", "Se ha acabado el tiempo... Has sido sacrificado por los entes."}
+    })
+
+    -- Espera para la 'cinematica'
+    Citizen.Wait(5000)
+
+    -- Quitar efectos y matar al jugador para simular sacrificio
+    StopScreenEffect("DeathFailMPIn")
+    AnimpostfxStop("DeathFailNeutralIn")
+
+    -- Si se quiere forzar la muerte:
+    SetEntityHealth(playerPed, 0)
+
+    -- Restaurar control un momento antes de finalizar la misión
+    FreezeEntityPosition(playerPed, false)
+
+    -- Finaliza la misión indicando que fue por muerte
+    EndMission(false, true)
+end
+
+-- Dibuja el temporizador en pantalla mientras la misión esté activa
+function DrawMissionTimer()
+    if not missionActive or missionStartTime == 0 then return end
+
+    local elapsed = math.floor((GetGameTimer() - missionStartTime) / 1000)
+    local remaining = math.max(0, Config.Mission.timeLimit - elapsed)
+    local minutes = math.floor(remaining / 60)
+    local seconds = remaining % 60
+    local text = string.format("Tiempo restante: %02d:%02d", minutes, seconds)
+
+    SetTextFont(4)
+    SetTextProportional(0)
+    SetTextScale(0.5, 0.5)
+    SetTextColour(255, 165, 0, 255)
+    SetTextDropshadow(1, 0, 0, 0, 255)
+    SetTextEdge(1, 0, 0, 0, 255)
+    SetTextOutline()
+    SetTextEntry("STRING")
+    AddTextComponentString(text)
+    DrawText(0.02, 0.02)
+end
+
+Citizen.CreateThread(function()
+    while true do
+        if missionActive then
+            DrawMissionTimer()
+            Citizen.Wait(250)
+        else
+            Citizen.Wait(2000)
         end
     end
 end)
@@ -1347,5 +1462,23 @@ AddEventHandler('onResourceStop', function(resourceName)
     
     if currentLobby then
         TriggerServerEvent('halloween:leaveLobby', currentLobby)
+    end
+end)
+
+Citizen.CreateThread(function()
+    while true do
+        Citizen.Wait(1000)
+        if not missionActive then
+            local playerPed = PlayerPedId()
+            local playerCoords = GetEntityCoords(playerPed)
+            local distance = Vdist(playerCoords.x, playerCoords.y, playerCoords.z, Config.NPC.coords.x, Config.NPC.coords.y, Config.NPC.coords.z)
+            if distance < 50.0 then
+                ActivateHalloweenZone()
+            else
+                DeactivateHalloweenZone()
+            end
+        else
+            Citizen.Wait(5000)
+        end
     end
 end)
